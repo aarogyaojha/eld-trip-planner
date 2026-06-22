@@ -108,11 +108,7 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- CORS -----------------------------------------------------------------
-# Strict allowlist only; never allow-all, even in development.
-CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS") or [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = False
 
 # --- Transport security (no-ops when DEBUG=True) --------------------------
