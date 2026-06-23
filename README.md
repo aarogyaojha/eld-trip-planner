@@ -1,40 +1,53 @@
-# Freightline — Route + HOS Log Planner
+# Freightline — Route & HOS Log Planner
 
-Plans a truck route (current location → pickup → drop-off) and generates
-compliant FMCSA Driver's Daily Log sheets for the trip, with a map of every
-stop the route requires.
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Django Version](https://img.shields.io/badge/django-5.0.6-092E20.svg)](https://www.djangoproject.com/)
+[![React Version](https://img.shields.io/badge/react-18.x-61DAFB.svg)](https://reactjs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Stack:** Django + Django REST Framework (backend) · React + Vite (frontend)
-**Maps/Routing:** Local City Database (autocomplete) + OSRM (routing) + Nominatim (fallback geocoding). No API keys required. Rendered with Leaflet on a CARTO dark basemap.
+Freightline is a full-stack web application designed for the logistics and transportation industry. It calculates driving routes between locations and **automatically simulates a fully compliant Federal Motor Carrier Safety Administration (FMCSA) Hours of Service (HOS) log** for the trip.
 
-## What it does
+**Stack:** Django + Django REST Framework (Backend) | React + Vite (Frontend)  
+**Maps/Routing:** Local SQLite City Database (autocomplete) + OSRM (routing) + Leaflet (rendering)
 
-Given a current location, pickup, drop-off, and hours already used in the
-70-hour/8-day cycle, it:
+---
 
-1. Look up coordinates for the three locations and routes between them.
-2. Runs an Hours-of-Service simulation that inserts every break, rest, fuel
-   stop, and cycle restart the regulations require along the way.
-3. Splits the resulting duty timeline into one 24-hour log sheet per day,
-   fully filled out — duty-status grid, daily totals, and remarks (city/state
-   + activity at each status change).
-4. Persists the trip so it can be revisited from the trip history panel
-   without re-hitting the routing/geocoding APIs.
+## Screenshots
 
-## Regulations modeled
+![Trip Planner Form](docs/form.png)
+*Fast offline autocomplete for city selection.*
 
-11-hour driving limit, 14-hour on-duty window, 30-minute break after 8 hours
-of cumulative driving, 10-consecutive-hour resets, the 70-hour/8-day limit
-with 34-hour restart. See `backend/trips/services/hos.py` for the full state
-machine.
+![Route Map](docs/map.png)
+*Interactive map showing the routed path and generated stops.*
 
-**Operating parameters:** property-carrying driver, 70-hour/8-day cycle, no
-adverse driving conditions, a fuel stop at least every 1,000 miles, 1 hour
-each for pickup and drop-off. The 70-hour cycle is tracked as a running
-total seeded by the cycle-hours input rather than a full rolling 8-day
-lookback over prior trips.
+![Driver's Daily Logs](docs/logs.png)
+*Automatically generated FMCSA-compliant HOS log sheets split across multiple days.*
 
-## Project layout
+---
+
+## Features & Architecture
+
+### 1. Trip Planning & Routing
+Given a current location, pickup, drop-off, and hours already used in the 70-hour/8-day cycle, the application queries an offline database for coordinates and fetches exact driving geometry and duration using the Open Source Routing Machine (OSRM).
+
+### 2. FMCSA Hours of Service Simulation
+It runs an Hours-of-Service simulation that inserts every break, rest, fuel stop, and cycle restart the regulations require along the way.
+**Modeled Regulations:**
+- 11-hour driving limit
+- 14-hour on-duty window
+- 30-minute break after 8 hours of cumulative driving
+- 10-consecutive-hour resets
+- The 70-hour/8-day limit with 34-hour restart
+
+### 3. Log Generation
+The backend splits the resulting duty timeline into one 24-hour log sheet per day, fully filled out with duty-status grids, daily totals, and location-aware remarks for every status change.
+
+### 4. Zero N+1 Queries
+Database writes are batched into a single `bulk_create()` operation, and reads utilize `prefetch_related()` to ensure that loading a massive 7-day trip requires the exact same number of fixed SQL queries as a 1-day trip.
+
+---
+
+## Project Layout
 
 ```
 eld-trip-planner/
@@ -53,85 +66,91 @@ eld-trip-planner/
 │           └── logsheets.py   Splits the timeline into daily log sheets
 └── frontend/
     └── src/
-        ├── App.jsx
-        ├── api.js
-        └── components/
-            ├── TripForm.jsx
-            ├── LocationAutocomplete.jsx
-            ├── RouteMap.jsx
-            ├── ELDLogSheet.jsx
-            ├── DailyLogsView.jsx
-            └── TripHistory.jsx
+        ├── api.js             API integration
+        └── components/        React component architecture
 ```
 
-## API
+---
 
-- `POST /api/plan-trip/` — plan a trip, returns route + stops + daily logs
-  and persists it. (Optimized: coordinates can be passed directly from autocomplete to bypass fallback geocoding.)
-- `GET /api/locations/suggest/?q=` — fast city/place autocomplete querying the local database.
-- `GET /api/trips/` — paginated trip history (summary fields only).
-- `GET /api/trips/<id>/` — full trip detail, including stops and daily logs.
+## Running Locally
 
-## Security
+### Backend Setup
 
-- All config (secret key, allowed hosts, CORS origins, database URL) comes
-  from environment variables — see `.env.example`.
-- Every API response goes through a custom exception handler
-  (`trips/exceptions.py`) that never leaks internals (stack traces, etc.).
-- Anonymous request throttling (`30/min` by default) on every endpoint.
+1. Navigate to the backend directory and set up a virtual environment:
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate  # On Windows use: venv\Scripts\activate
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Copy environment variables and apply migrations:
+   ```bash
+   cp .env.example .env
+   python manage.py migrate
+   ```
+4. **Crucial:** Load the local city database for the fast autocomplete feature:
+   ```bash
+   python manage.py load_cities
+   ```
+5. Start the server:
+   ```bash
+   python manage.py runserver
+   ```
 
-## Database design (no N+1 queries)
+### Frontend Setup
 
-- **Writes:** `_persist_trip()` in `views.py` batches each table into a
-  single `bulk_create()` call instead of looping `.create()` per row.
-- **Reads:** `GET /api/trips/<id>/` uses `prefetch_related()`, which executes a fixed number of queries regardless of how many stops or daily logs a trip has.
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Copy environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+4. Start the development server:
+   ```bash
+   npm run dev
+   ```
+5. Open `http://localhost:5173` in your browser.
 
-## Running locally
+---
 
-### Backend
+## Deployment
 
-```bash
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # then edit as needed
-python manage.py migrate
+### Backend (Render / Heroku)
+1. Use the `backend` folder as the root directory.
+2. **Build Command:** `pip install -r requirements.txt && python manage.py migrate && python manage.py load_cities`
+3. **Start Command:** `gunicorn eld_planner.wsgi:application --bind 0.0.0.0:$PORT`
+4. **Environment Variables:** `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY=<secret>`
 
-# Load the local city database for the autocomplete endpoint
-python manage.py load_cities
+### Frontend (Vercel / Netlify)
+1. Use the `frontend` folder as the root directory, using the Vite framework preset.
+2. **Environment Variable:** `VITE_API_BASE_URL=https://<your-backend-domain>/api`
 
-python manage.py runserver
-```
+---
 
-### Frontend
+## Contributing
 
-```bash
-cd frontend
-npm install
-cp .env.example .env
-npm run dev
-```
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are greatly appreciated.
 
-Open `http://localhost:5173`.
+Please refer to the [Contributing Guidelines](CONTRIBUTING.md) for detailed instructions on how to submit issues, feature requests, and Pull Requests.
 
-## Deploying
+---
 
-**Backend → Render (free Web Service):**
-1. Push to GitHub, connect the repo, root directory `backend`.
-2. Build Command: `pip install -r requirements.txt && python manage.py migrate && python manage.py load_cities`
-3. Start Command: `gunicorn eld_planner.wsgi:application --bind 0.0.0.0:$PORT`
-4. Env vars: `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY=<random>`,
-   `DJANGO_ALLOWED_HOSTS=<render-domain>`,
-   `CORS_ALLOWED_ORIGINS=https://<vercel-domain>`,
-   `DATABASE_URL=<a free Postgres instance>` (Render's filesystem is wiped
-   on every deploy, so SQLite won't persist trip history there).
+## License
 
-**Frontend → Vercel:**
-1. Import the repo, root directory `frontend`, framework preset Vite.
-2. Env var: `VITE_API_BASE_URL=https://<render-domain>/api`.
+Distributed under the MIT License. See `LICENSE` for more information.
 
-## Notes for Future Devs
+---
 
-- **Mapping/Routing:** The app currently relies on the public OSRM demonstration server (`router.project-osrm.org`) for routing. While acceptable for development, this server is rate-limited and lacks any Service Level Agreement (SLA). For a production rollout, swap `OSRM_BASE_URL` in `trips/services/routing.py` to a self-hosted OSRM instance or a commercial alternative (Mapbox, Google Maps, OpenRouteService).
-- **Coordinate Systems:** The backend receives GeoJSON geometries (`[lon, lat]`) from OSRM. Note that Leaflet expects geometries as `[lat, lon]`. The backend specifically flips this array in `routing.py` before serving the payload to the frontend.
-- **City Search Database:** The local database uses the Simplemaps World Cities dataset. It is populated via the custom management command `load_cities`. Update the underlying `worldcities.csv` if geographical boundaries or populations drastically shift in the future.
+## Notes for Developers
+
+- **Mapping/Routing:** The app currently relies on the public OSRM demonstration server (`router.project-osrm.org`) for routing. While acceptable for development, this server is rate-limited. For production scale, swap `OSRM_BASE_URL` in `trips/services/routing.py` to a self-hosted OSRM instance or a commercial alternative (Mapbox, Google Maps).
+- **Coordinate Systems:** The backend receives GeoJSON geometries (`[lon, lat]`) from OSRM. Note that Leaflet expects geometries as `[lat, lon]`. The backend specifically handles this transformation in `routing.py` before serving the payload to the frontend.
